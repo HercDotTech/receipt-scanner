@@ -22,8 +22,8 @@ PROMPT='given the text below is a receipt, extract a CSV with the following colu
 
     # Split input file
     echo "Splitting image..."
-    multicrop2 -b "#000000" -f 40 -u 3 -t 10 -d 200 "$scan_full_path" "$OUTPUT_DIRECTORY/tmp/split.jpg" > /dev/null 2>&1
-    rm "$OUTPUT_DIRECTORY/tmp/scan.jpg"
+    multicrop2 -b "#000000" -f 40 -u 3 -t 10 -d 200 "$scan_full_path" "$tempDir/split.jpg" > /dev/null 2>&1
+    rm "$scan_full_path"
 
     # Process split
     echo "Processing splits..."
@@ -31,20 +31,20 @@ PROMPT='given the text below is a receipt, extract a CSV with the following colu
     local fileName
     local csvContent
 
-    for filePath in "$OUTPUT_DIRECTORY"/tmp/*.jpg; do
+    for filePath in "$tempDir"/*.jpg; do
       if [ -f "$filePath" ]; then
         echo "Processing split #$splitIndex..."
 
         # Extract text
         echo "Extracting text..."
         fileName=$(basename "$filePath" .jpg)
-        tesseract "$filePath" "$OUTPUT_DIRECTORY/tmp/$fileName" -l eng > /dev/null 2>&1
+        tesseract "$filePath" "$tempDir/$fileName" -l eng > /dev/null 2>&1
 
         # Prepend prompt to file
         echo "Adding prompt to file..."
-        echo "" | cat - "$OUTPUT_DIRECTORY/tmp/$fileName".txt > temp && mv temp "$OUTPUT_DIRECTORY/tmp/$fileName".txt
-        echo "" | cat - "$OUTPUT_DIRECTORY/tmp/$fileName".txt > temp && mv temp "$OUTPUT_DIRECTORY/tmp/$fileName".txt
-        echo "$PROMPT" | cat - "$OUTPUT_DIRECTORY/tmp/$fileName".txt > temp && mv temp "$OUTPUT_DIRECTORY/tmp/$fileName".txt
+        echo "" | cat - "$tempDir/$fileName".txt > temp && mv temp "$tempDir/$fileName".txt
+        echo "" | cat - "$tempDir/$fileName".txt > temp && mv temp "$tempDir/$fileName".txt
+        echo "$PROMPT" | cat - "$tempDir/$fileName".txt > temp && mv temp "$tempDir/$fileName".txt
 
         # Parse text and get CSV
         echo "Running AI magick..."
@@ -61,14 +61,14 @@ PROMPT='given the text below is a receipt, extract a CSV with the following colu
         local imageName
         local merchant
         local date
-        merchant=${csvData[0]// /-}
+        merchant="${csvData[0]// /-}"
 
-        date=${csvData[1]// /_}
-        date=${date//\//-}
-        date=${date//:/-}
+        date="${csvData[1]// /_}"
+        date="${date//\//-}"
+        date="${date//:/-}"
 
-        imageName=${merchant}_${date}.jpg
-        imageName=${imageName//\"/}
+        imageName="${merchant}_${date}.jpg"
+        imageName="${imageName//\"/}"
 
         # Move split image into Merchant directory
         mkdir -p "$OUTPUT_DIRECTORY/$merchant"
@@ -125,7 +125,7 @@ PROMPT='given the text below is a receipt, extract a CSV with the following colu
 
   while pause_execution; do
     # Create temporary directory
-    mkdir -p "$OUTPUT_DIRECTORY/tmp"
+    tempDir="$(mktemp -d)"
 
     echo "Connecting to scanner..."
     # Capture images from scanner
@@ -134,15 +134,15 @@ PROMPT='given the text below is a receipt, extract a CSV with the following colu
       -resolution 300 \
       -flatbed \
       -jpeg \
-      -dir "$OUTPUT_DIRECTORY/tmp" \
+      -dir "$tempDir" \
       -name "scan"
 
     echo "Processing scan..."
-    if [ -f "$OUTPUT_DIRECTORY/tmp/scan.jpg" ]; then
-      process_scan "$OUTPUT_DIRECTORY/tmp/scan.jpg"
+    if [ -f "$tempDir/scan.jpg" ]; then
+      process_scan "$tempDir/scan.jpg"
     fi
 
     echo "Cleaning up..."
-    rm -rf "$OUTPUT_DIRECTORY/tmp"
+    rm -rf "$tempDir"
   done;
 # endregion
