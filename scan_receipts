@@ -1,6 +1,6 @@
 #!/bin/bash
 
-PROMPT='given the text below is a receipt, format it as CSV with the following columns: merchant name which is likely to be a single word, receipt date in dd/mm/yyyy HH:mm format, summary of what was purchased, total of the receipt. Respond with a single line representing the CSV data'
+PROMPT='given the text below is a receipt, extract a CSV with the following columns: merchant name which is likely to be a single word, receipt date in dd/mm/yyyy HH:mm format, summary of what was purchased, total of the receipt. Respond with a single line representing the CSV data'
 BG_COLOR='#b98e6e'
 
 # region Functions
