@@ -1,7 +1,10 @@
 #!/bin/bash
 
 PROMPT='given the text below is a receipt, extract a CSV with the following columns: merchant name which is likely to be a single word, receipt date in dd/mm/yyyy HH:mm format, summary of what was purchased, total of the receipt. Respond with a single line representing the CSV data'
-BG_COLOR='#b98e6e'
+# Background colour of scanner plate
+INPUT_BG_COLOR='#b98e6e'
+# Desired background colour (high-contrast to receipts works best)
+FINAL_BG_COLOR='#000000'
 
 # region Functions
   process_scan() {
@@ -13,13 +16,15 @@ BG_COLOR='#b98e6e'
     echo "Trimming ..."
     magick "$scan_full_path" -shave 20x20 "$scan_full_path" > /dev/null 2>&1
 
-    # Replace background color to red
+    # Replace background color to black
     echo "Adjusting background color..."
-    magick "$scan_full_path" -fuzz 20% -transparent "$BG_COLOR" -background '#000000' -flatten "$scan_full_path" > /dev/null 2>&1
+    magick "$scan_full_path" -fuzz 20% -transparent "$INPUT_BG_COLOR" -background "$FINAL_BG_COLOR" -flatten "$scan_full_path" > /dev/null 2>&1
+    # Add a border to help multi crop
+    convert "$scan_full_path" -bordercolor "$FINAL_BG_COLOR" -border "50x50" "$scan_full_path" > /dev/null 2>&1
 
     # Split input file
     echo "Splitting image..."
-    multicrop -c 20,20 -f 40 -u 3 -t 10 -d 200 "$scan_full_path" "$OUTPUT_DIRECTORY"/tmp/split.jpg > /dev/null 2>&1
+    multicrop -b "$FINAL_BG_COLOR" -f 40 -u 3 -t 10 -d 200 "$scan_full_path" "$OUTPUT_DIRECTORY"/tmp/split.jpg > /dev/null 2>&1
     rm "$OUTPUT_DIRECTORY"/tmp/scan.jpg
 
     # Process split
@@ -64,7 +69,11 @@ BG_COLOR='#b98e6e'
 
         imageName=${merchant}_${date}.jpg
         imageName=${imageName//\"/}
-        cp "$filePath" "$OUTPUT_DIRECTORY"/images/"$imageName"
+
+        # Move split image into Merchant directory
+        mkdir -p "$OUTPUT_DIRECTORY"/"$merchant"
+        # Rename file to include merchant name and date
+        cp "$filePath" "$OUTPUT_DIRECTORY"/"$merchant"/"$imageName"
 
         # Continue
         splitIndex=$((splitIndex + 1))
@@ -76,31 +85,30 @@ BG_COLOR='#b98e6e'
   }
 
   pause_execution() {
-  # Set the input variable to an empty string initially
-  local input=""
+    # Set the input variable to an empty string initially
+    local input=""
 
-  # The '-r' flag prevents backslash interpretation
-  # The '-p' flag allows us to specify a prompt
-  read -r -p "Press [Enter] to scan a new document, or 's' to end scanning: " input
+    # The '-r' flag prevents backslash interpretation
+    # The '-p' flag allows us to specify a prompt
+    read -r -p "Press [Enter] to scan a new document, or 's' to end scanning: " input
 
-  # Check the input provided by the user.
-  # If the user presses ENTER only, 'input' will be empty, and we continue the loop.
-
-  if [[ "$input" =~ ^[sS]$ ]]; then
-  # If input is 's' or 'S', return 1 (indicating a stop condition)
-  return 1
-  else
-  # Otherwise (Enter or any other key), return 0 (indicating continue)
-  return 0
-  fi
+    # Check the input provided by the user.
+    # If the user presses ENTER only, 'input' will be empty, and we continue the loop.
+    if [[ "$input" =~ ^[sS]$ ]]; then
+      # If input is 's' or 'S', return 1 (indicating a stop condition)
+      return 1
+    else
+      # Otherwise (Enter or any other key), return 0 (indicating continue)
+      return 0
+    fi
   }
 # endregion
 
 # region MainScript
   # Check if the correct number of parameters were provided
   if [ "$#" -ne 1 ]; then
-  echo "Usage: $0 <OUTPUT_DIRECTORY>" >&2
-  exit 1
+    echo "Usage: $0 <OUTPUT_DIRECTORY>" >&2
+    exit 1
   fi
 
   # Assign the command-line parameters to variables
@@ -108,35 +116,32 @@ BG_COLOR='#b98e6e'
 
   # Create directory if not exist
   if [ ! -d "$OUTPUT_DIRECTORY" ]; then
-  mkdir -p "$OUTPUT_DIRECTORY"
+    mkdir -p "$OUTPUT_DIRECTORY"
   fi
   if [ ! -d "$OUTPUT_DIRECTORY"/tmp ]; then
-  mkdir -p "$OUTPUT_DIRECTORY"/tmp
-  fi
-  if [ ! -d "$OUTPUT_DIRECTORY"/images ]; then
-  mkdir -p "$OUTPUT_DIRECTORY"/images
+    mkdir -p "$OUTPUT_DIRECTORY"/tmp
   fi
 
   # Create CSV file if not exists
   if [ ! -f "$OUTPUT_DIRECTORY"/data.csv ]; then
-  echo "merchant,date,summary,total" >> "$OUTPUT_DIRECTORY"/data.csv
+    echo "merchant,date,summary,total" >> "$OUTPUT_DIRECTORY"/data.csv
   fi
 
   while pause_execution; do
-  echo "Connecting to scanner..."
-  # Capture images from scanner
-  scanline \
-  -a4 \
-  -resolution 300 \
-  -flatbed \
-  -jpeg \
-  -dir "$OUTPUT_DIRECTORY"/tmp \
-  -name "scan"
+    echo "Connecting to scanner..."
+    # Capture images from scanner
+    scanline \
+      -a4 \
+      -resolution 300 \
+      -flatbed \
+      -jpeg \
+      -dir "$OUTPUT_DIRECTORY"/tmp \
+      -name "scan"
 
-  echo "Processing scan..."
-  if [ -f "$OUTPUT_DIRECTORY"/tmp/scan.jpg ]; then
-  process_scan "$OUTPUT_DIRECTORY"/tmp/scan.jpg
-  fi
+    echo "Processing scan..."
+    if [ -f "$OUTPUT_DIRECTORY"/tmp/scan.jpg ]; then
+      process_scan "$OUTPUT_DIRECTORY"/tmp/scan.jpg
+    fi
   done;
 
   echo "Cleaning up..."
