@@ -1,10 +1,6 @@
 #!/bin/bash
 
 PROMPT='given the text below is a receipt, extract a CSV with the following columns: merchant name which is likely to be a single word, receipt date in dd/mm/yyyy HH:mm format, summary of what was purchased, total of the receipt. Respond with a single line representing the CSV data'
-# Background colour of scanner plate
-INPUT_BG_COLOR='#b98e6e'
-# Desired background colour (high-contrast to receipts works best)
-FINAL_BG_COLOR='#000000'
 
 # region Functions
   process_scan() {
@@ -18,14 +14,16 @@ FINAL_BG_COLOR='#000000'
 
     # Replace background color to black
     echo "Adjusting background color..."
-    magick "$scan_full_path" -fuzz 20% -transparent "$INPUT_BG_COLOR" -background "$FINAL_BG_COLOR" -flatten "$scan_full_path" > /dev/null 2>&1
+    magick "$scan_full_path" -fuzz 20% -transparent "$INPUT_BG_COLOR" -background "#000000" -flatten "$scan_full_path" > /dev/null 2>&1
     # Add a border to help multi crop
-    convert "$scan_full_path" -bordercolor "$FINAL_BG_COLOR" -border "50x50" "$scan_full_path" > /dev/null 2>&1
+    convert "$scan_full_path" -bordercolor "#000000" -border "50x50" "$scan_full_path" > /dev/null 2>&1
+    # Convert image to binary
+    magick "$scan_full_path" -alpha off -auto-threshold otsu "$scan_full_path"
 
     # Split input file
     echo "Splitting image..."
-    multicrop -b "$FINAL_BG_COLOR" -f 40 -u 3 -t 10 -d 200 "$scan_full_path" "$OUTPUT_DIRECTORY"/tmp/split.jpg > /dev/null 2>&1
-    rm "$OUTPUT_DIRECTORY"/tmp/scan.jpg
+    multicrop2 -b "#000000" -f 40 -u 3 -t 10 -d 200 "$scan_full_path" "$OUTPUT_DIRECTORY/tmp/split.jpg" > /dev/null 2>&1
+    rm "$OUTPUT_DIRECTORY/tmp/scan.jpg"
 
     # Process split
     echo "Processing splits..."
@@ -40,20 +38,22 @@ FINAL_BG_COLOR='#000000'
         # Extract text
         echo "Extracting text..."
         fileName=$(basename "$filePath" .jpg)
-        tesseract "$filePath" "$OUTPUT_DIRECTORY"/tmp/"$fileName" -l eng > /dev/null 2>&1
+        tesseract "$filePath" "$OUTPUT_DIRECTORY/tmp/$fileName" -l eng > /dev/null 2>&1
 
         # Prepend prompt to file
         echo "Adding prompt to file..."
-        echo "" | cat - "$OUTPUT_DIRECTORY"/tmp/"$fileName".txt > temp && mv temp "$OUTPUT_DIRECTORY"/tmp/"$fileName".txt
-        echo "" | cat - "$OUTPUT_DIRECTORY"/tmp/"$fileName".txt > temp && mv temp "$OUTPUT_DIRECTORY"/tmp/"$fileName".txt
-        echo "$PROMPT" | cat - "$OUTPUT_DIRECTORY"/tmp/"$fileName".txt > temp && mv temp "$OUTPUT_DIRECTORY"/tmp/"$fileName".txt
+        echo "" | cat - "$OUTPUT_DIRECTORY/tmp/$fileName".txt > temp && mv temp "$OUTPUT_DIRECTORY/tmp/$fileName".txt
+        echo "" | cat - "$OUTPUT_DIRECTORY/tmp/$fileName".txt > temp && mv temp "$OUTPUT_DIRECTORY/tmp/$fileName".txt
+        echo "$PROMPT" | cat - "$OUTPUT_DIRECTORY/tmp/$fileName".txt > temp && mv temp "$OUTPUT_DIRECTORY/tmp/$fileName".txt
 
         # Parse text and get CSV
         echo "Running AI magick..."
-        csvContent=$(cat "$OUTPUT_DIRECTORY"/tmp/"$fileName".txt | fabric --pattern export_data_as_csv | tail -n1)
+        csvContent=$(fabric --pattern export_data_as_csv < "$OUTPUT_DIRECTORY/tmp/$fileName".txt | tail -n1)
+        # Convert to lowercase
+        csvContent=$(tr '[:upper:]' '[:lower:]' <<< "$csvContent")
 
         echo "Saving CSV line..."
-        echo "$csvContent" >> "$OUTPUT_DIRECTORY"/data.csv
+        echo "$csvContent" >> "$OUTPUT_DIRECTORY/data.csv"
 
         # Rename image
         echo "Saving receipt image..."
@@ -71,17 +71,14 @@ FINAL_BG_COLOR='#000000'
         imageName=${imageName//\"/}
 
         # Move split image into Merchant directory
-        mkdir -p "$OUTPUT_DIRECTORY"/"$merchant"
+        mkdir -p "$OUTPUT_DIRECTORY/$merchant"
         # Rename file to include merchant name and date
-        cp "$filePath" "$OUTPUT_DIRECTORY"/"$merchant"/"$imageName"
+        cp "$filePath" "$OUTPUT_DIRECTORY/$merchant/$imageName"
 
         # Continue
         splitIndex=$((splitIndex + 1))
       fi
     done
-
-    echo "Cleaning up..."
-    rm -rf "$OUTPUT_DIRECTORY"/tmp/*
   }
 
   pause_execution() {
@@ -106,28 +103,30 @@ FINAL_BG_COLOR='#000000'
 
 # region MainScript
   # Check if the correct number of parameters were provided
-  if [ "$#" -ne 1 ]; then
-    echo "Usage: $0 <OUTPUT_DIRECTORY>" >&2
+  if [ "$#" -ne 2 ]; then
+    echo "Usage: $0 <OUTPUT_DIRECTORY> <BG_COLOR>" >&2
     exit 1
   fi
 
-  # Assign the command-line parameters to variables
+  # Directory to write files to
   OUTPUT_DIRECTORY=$(realpath -q "$1")
+  # Background colour of scanner plate
+  INPUT_BG_COLOR="$2"
 
   # Create directory if not exist
   if [ ! -d "$OUTPUT_DIRECTORY" ]; then
     mkdir -p "$OUTPUT_DIRECTORY"
   fi
-  if [ ! -d "$OUTPUT_DIRECTORY"/tmp ]; then
-    mkdir -p "$OUTPUT_DIRECTORY"/tmp
-  fi
 
   # Create CSV file if not exists
-  if [ ! -f "$OUTPUT_DIRECTORY"/data.csv ]; then
-    echo "merchant,date,summary,total" >> "$OUTPUT_DIRECTORY"/data.csv
+  if [ ! -f "$OUTPUT_DIRECTORY/data.csv" ]; then
+    echo "merchant,date,summary,total" >> "$OUTPUT_DIRECTORY/data.csv"
   fi
 
   while pause_execution; do
+    # Create temporary directory
+    mkdir -p "$OUTPUT_DIRECTORY/tmp"
+
     echo "Connecting to scanner..."
     # Capture images from scanner
     scanline \
@@ -135,15 +134,15 @@ FINAL_BG_COLOR='#000000'
       -resolution 300 \
       -flatbed \
       -jpeg \
-      -dir "$OUTPUT_DIRECTORY"/tmp \
+      -dir "$OUTPUT_DIRECTORY/tmp" \
       -name "scan"
 
     echo "Processing scan..."
-    if [ -f "$OUTPUT_DIRECTORY"/tmp/scan.jpg ]; then
-      process_scan "$OUTPUT_DIRECTORY"/tmp/scan.jpg
+    if [ -f "$OUTPUT_DIRECTORY/tmp/scan.jpg" ]; then
+      process_scan "$OUTPUT_DIRECTORY/tmp/scan.jpg"
     fi
-  done;
 
-  echo "Cleaning up..."
-  rm -rf "$OUTPUT_DIRECTORY"/tmp
+    echo "Cleaning up..."
+    rm -rf "$OUTPUT_DIRECTORY/tmp"
+  done;
 # endregion
