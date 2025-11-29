@@ -1,5 +1,6 @@
 #!/bin/bash
 
+CSV_HEADER='merchant,date,summary,total,filename'
 PROMPT='given the text below is a receipt, extract a CSV with the following columns: merchant name which is likely to be a single word, receipt date in dd/mm/yyyy HH:mm format, summary of what was purchased, total of the receipt. Respond with a single line representing the CSV data'
 
 # region Functions
@@ -17,8 +18,6 @@ PROMPT='given the text below is a receipt, extract a CSV with the following colu
     magick "$scan_full_path" -fuzz 20% -transparent "$INPUT_BG_COLOR" -background "#000000" -flatten "$scan_full_path" > /dev/null 2>&1
     # Add a border to help multi crop
     convert "$scan_full_path" -bordercolor "#000000" -border "50x50" "$scan_full_path" > /dev/null 2>&1
-    # Convert image to binary
-    magick "$scan_full_path" -alpha off -auto-threshold otsu "$scan_full_path"
 
     # Split input file
     echo "Splitting image..."
@@ -48,12 +47,9 @@ PROMPT='given the text below is a receipt, extract a CSV with the following colu
 
         # Parse text and get CSV
         echo "Running AI magick..."
-        csvContent=$(fabric --pattern export_data_as_csv < "$OUTPUT_DIRECTORY/tmp/$fileName".txt | tail -n1)
+        csvContent=$(fabric --pattern export_data_as_csv < "$tempDir/$fileName".txt | tail -n1)
         # Convert to lowercase
         csvContent=$(tr '[:upper:]' '[:lower:]' <<< "$csvContent")
-
-        echo "Saving CSV line..."
-        echo "$csvContent" >> "$OUTPUT_DIRECTORY/data.csv"
 
         # Rename image
         echo "Saving receipt image..."
@@ -62,6 +58,7 @@ PROMPT='given the text below is a receipt, extract a CSV with the following colu
         local merchant
         local date
         merchant="${csvData[0]// /-}"
+        merchant="${merchant//\"/}"
 
         date="${csvData[1]// /_}"
         date="${date//\//-}"
@@ -74,6 +71,13 @@ PROMPT='given the text below is a receipt, extract a CSV with the following colu
         mkdir -p "$OUTPUT_DIRECTORY/$merchant"
         # Rename file to include merchant name and date
         cp "$filePath" "$OUTPUT_DIRECTORY/$merchant/$imageName"
+
+        echo "Saving CSV line..."
+        # Create CSV file if not exists
+        if [ ! -f "$OUTPUT_DIRECTORY/$merchant/$merchant.csv" ]; then
+          echo "$CSV_HEADER" >> "$OUTPUT_DIRECTORY/$merchant/$merchant.csv"
+        fi
+        echo "$csvContent,=HYPERLINK(\"./$merchant/$imageName\")" >> "$OUTPUT_DIRECTORY/$merchant/$merchant.csv"
 
         # Continue
         splitIndex=$((splitIndex + 1))
@@ -116,11 +120,6 @@ PROMPT='given the text below is a receipt, extract a CSV with the following colu
   # Create directory if not exist
   if [ ! -d "$OUTPUT_DIRECTORY" ]; then
     mkdir -p "$OUTPUT_DIRECTORY"
-  fi
-
-  # Create CSV file if not exists
-  if [ ! -f "$OUTPUT_DIRECTORY/data.csv" ]; then
-    echo "merchant,date,summary,total" >> "$OUTPUT_DIRECTORY/data.csv"
   fi
 
   while pause_execution; do
