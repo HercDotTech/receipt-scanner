@@ -47,12 +47,11 @@ PROMPT='given the text below is a receipt, extract a CSV with the following colu
 
         # Parse text and get CSV
         echo "Running AI magick..."
-        csvContent=$(fabric --pattern export_data_as_csv < "$tempDir/$fileName".txt | tail -n1)
+        csvContent=$(fabric --pattern export_data_as_csv < "$tempDir/$fileName.txt" | tail -n1)
         # Convert to lowercase
         csvContent=$(tr '[:upper:]' '[:lower:]' <<< "$csvContent")
 
-        # Rename image
-        echo "Saving receipt image..."
+        # Extract data from CSV response
         IFS=',' read -ra csvData <<< "$csvContent"
         local imageName
         local merchant
@@ -64,20 +63,29 @@ PROMPT='given the text below is a receipt, extract a CSV with the following colu
         date="${date//\//-}"
         date="${date//:/-}"
 
-        imageName="${merchant}_${date}.jpg"
+        imageName="${merchant}_${date}"
         imageName="${imageName//\"/}"
+        imageName="${imageName}_${scanResolution}"
 
-        # Move split image into Merchant directory
+        # Create merchant directory if not exists
         mkdir -p "$OUTPUT_DIRECTORY/$merchant"
-        # Rename file to include merchant name and date
-        cp "$filePath" "$OUTPUT_DIRECTORY/$merchant/$imageName"
 
         echo "Saving CSV line..."
         # Create CSV file if not exists
-        if [ ! -f "$OUTPUT_DIRECTORY/$merchant/$merchant.csv" ]; then
+        if [[ ! -f "$OUTPUT_DIRECTORY/$merchant/$merchant.csv" ]]; then
           echo "$CSV_HEADER" >> "$OUTPUT_DIRECTORY/$merchant/$merchant.csv"
         fi
-        echo "$csvContent,=HYPERLINK(\"./$merchant/$imageName\")" >> "$OUTPUT_DIRECTORY/$merchant/$merchant.csv"
+        # If image file already exists clean corresponding CSV
+        if [[ -f "$OUTPUT_DIRECTORY/$merchant/$imageName.jpg" ]]; then
+          sed -i '$d' "$OUTPUT_DIRECTORY/$merchant/$merchant.csv"
+        fi
+        # Add new CSV line to file
+        echo "$csvContent,=HYPERLINK(\"./$merchant/$imageName.jpg\")" >> "$OUTPUT_DIRECTORY/$merchant/$merchant.csv"
+
+        echo "Saving image..."
+        # Move temporary file to final directory
+        mv "$filePath" "$OUTPUT_DIRECTORY/$merchant/$imageName.jpg"
+        mv "$tempDir/$fileName.txt" "$OUTPUT_DIRECTORY/$merchant/$imageName.txt"
 
         # Continue
         splitIndex=$((splitIndex + 1))
@@ -122,15 +130,22 @@ PROMPT='given the text below is a receipt, extract a CSV with the following colu
     mkdir -p "$OUTPUT_DIRECTORY"
   fi
 
+  defaultResolution=300
   while pause_execution; do
     # Create temporary directory
     tempDir="$(mktemp -d)"
 
     echo "Connecting to scanner..."
+
+    read -p "Enter scan resolution (default: ${defaultResolution}): " scanResolution
+    scanResolution="${scanResolution:-${defaultResolution}}"
+    echo "Set scanning resolution to $scanResolution..."
+    defaultResolution="$scanResolution"
+
     # Capture images from scanner
     scanline \
       -a4 \
-      -resolution 300 \
+      -resolution "$scanResolution" \
       -flatbed \
       -jpeg \
       -dir "$tempDir" \
